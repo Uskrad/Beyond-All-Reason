@@ -1,0 +1,146 @@
+<rml>
+<head>
+	<title>Map Editor</title>
+	<link type="text/rcss" href="gui_map_editor.rcss" />
+</head>
+<body data-model="map_editor_model">
+	<div id="me-root" class="me-root">
+		<div id="me-top" class="me-chrome me-top">
+			<div class="me-brand">{{title}}</div>
+			<div class="me-map">{{mapName}}</div>
+			<div id="me-dirty" class="me-dirty">{{dirtyLabel}}</div>
+		</div>
+		<div id="me-dock" class="me-chrome me-dock">
+			<div class="me-tabs">
+				<button id="tab-sculpt" class="me-tab is-active">{{tabSculpt}}</button>
+				<button id="tab-paint" class="me-tab">{{tabPaint}}</button>
+				<button id="tab-place" class="me-tab">{{tabPlace}}</button>
+				<button id="tab-map" class="me-tab">{{tabMap}}</button>
+			</div>
+
+			<div id="panel-sculpt" class="me-panel">
+				<div class="me-section-label">{{heightLayer}}</div>
+				<div id="tools-height" class="me-tools">
+					<button id="tool-raise" class="me-tool is-active">{{raiseLabel}}</button>
+					<button id="tool-lower" class="me-tool">{{lowerLabel}}</button>
+					<button id="tool-flatten" class="me-tool">{{flattenLabel}}</button>
+					<button id="tool-smooth" class="me-tool">{{smoothLabel}}</button>
+					<button id="tool-ramp" class="me-tool">{{rampLabel}}</button>
+				</div>
+			</div>
+
+			<div id="panel-paint" class="me-panel is-hidden">
+				<div class="me-subtabs">
+					<button id="layer-metal" class="me-layer">{{metalLayer}}</button>
+					<button id="layer-grass" class="me-layer">{{grassLayer}}</button>
+					<button id="layer-tex" class="me-layer">{{texLayer}}</button>
+				</div>
+				<div id="tools-metal" class="me-tools is-hidden">
+					<button id="tool-metal" class="me-tool">{{metalPaint}}</button>
+					<button id="tool-demetal" class="me-tool">{{metalErase}}</button>
+				</div>
+				<div id="tools-grass" class="me-tools is-hidden">
+					<button id="tool-grass" class="me-tool">{{grassGrow}}</button>
+					<button id="tool-cut" class="me-tool">{{grassCut}}</button>
+				</div>
+				<div id="tools-tex" class="me-tools is-hidden">
+					<button id="tool-splat1" class="me-tool">{{splat1Label}}</button>
+					<button id="tool-splat2" class="me-tool">{{splat2Label}}</button>
+					<button id="tool-splat3" class="me-tool">{{splat3Label}}</button>
+					<button id="tool-splat4" class="me-tool">{{splat4Label}}</button>
+				</div>
+			</div>
+
+			<div id="panel-place" class="me-panel is-hidden">
+				<div class="me-section-label">{{assetsLayer}}</div>
+				<div id="tools-assets" class="me-tools">
+					<button id="tool-place" class="me-tool">{{placeLabel}}</button>
+					<button id="tool-delete" class="me-tool">{{deleteLabel}}</button>
+					<div class="me-palette-toggle">
+						<button id="palette-features" class="me-layer is-active">{{featuresLabel}}</button>
+						<button id="palette-units" class="me-layer">{{unitsLabel}}</button>
+					</div>
+					<div class="me-row">
+						<button id="asset-prev" class="me-step">‹</button>
+						<div id="asset-name" class="me-value me-asset-name">{{assetName}}</div>
+						<button id="asset-next" class="me-step">›</button>
+					</div>
+					<button id="tool-rotate" class="me-tool">{{rotateLabel}}</button>
+				</div>
+			</div>
+
+			<div id="panel-map" class="me-panel is-hidden">
+				<div class="me-section-label">{{tabMap}}</div>
+				<div class="me-map-now">{{mapName}}</div>
+				<div class="me-row-label">{{nameLabel}}</div>
+				<input id="me-name" class="me-name" type="text" maxlength="48" placeholder="{{namePlaceholder}}" />
+				<div class="me-row">
+					<div class="me-row-label">{{newSizeLabel}}</div>
+					<button id="newsize-dec" class="me-step">−</button>
+					<div class="me-value">{{newSizeValue}}</div>
+					<button id="newsize-inc" class="me-step">+</button>
+				</div>
+				<div class="me-actions">
+					<button id="me-new" class="me-action">{{newLabel}}</button>
+					<button id="me-export" class="me-action">{{exportLabel}}</button>
+				</div>
+				<div class="me-actions">
+					<button id="me-save" class="me-action">{{saveLabel}}</button>
+					<button id="me-load" class="me-action">{{loadLabel}}</button>
+					<button id="me-play" class="me-action">{{playLabel}}</button>
+				</div>
+				<div class="me-section-label">{{startsLayer}}</div>
+				<div id="tools-starts" class="me-tools">
+					<button id="tool-box" class="me-tool">{{boxLabel}}</button>
+					<button id="tool-start" class="me-tool">{{startLabel}}</button>
+					<button id="tool-erasebox" class="me-tool">{{eraseBoxLabel}}</button>
+				</div>
+				<div class="me-section-label">{{lightLayer}}</div>
+				<div id="tools-light" class="me-tools">
+					<button id="tool-sun" class="me-tool">{{sunLabel}}</button>
+					<button id="tool-ambient" class="me-tool">{{ambientLabel}}</button>
+					<button id="tool-fog" class="me-tool">{{fogLabel}}</button>
+					<button id="tool-water" class="me-tool">{{waterLabel}}</button>
+				</div>
+			</div>
+
+			<div id="row-radius" class="me-row">
+				<div class="me-row-label">{{radiusLabel}}</div>
+				<button id="radius-dec" class="me-step">−</button>
+				<div class="me-value">{{radiusValue}}</div>
+				<button id="radius-inc" class="me-step">+</button>
+			</div>
+			<div id="row-strength" class="me-row">
+				<div class="me-row-label">{{strengthLabel}}</div>
+				<button id="strength-dec" class="me-step">−</button>
+				<div class="me-value">{{strengthValue}}</div>
+				<button id="strength-inc" class="me-step">+</button>
+			</div>
+			<div id="row-falloff" class="me-row">
+				<div class="me-row-label">{{falloffLabel}}</div>
+				<button id="falloff-dec" class="me-step">−</button>
+				<div class="me-value">{{falloffValue}}</div>
+				<button id="falloff-inc" class="me-step">+</button>
+			</div>
+			<div class="me-actions">
+				<button id="me-undo" class="me-action">{{undoLabel}}</button>
+				<button id="me-redo" class="me-action">{{redoLabel}}</button>
+			</div>
+			<div id="me-tip" class="me-tip">
+				<div class="me-tip-title">{{tipTitle}}</div>
+				<div class="me-tip-body">{{tipBody}}</div>
+			</div>
+		</div>
+		<div id="me-playtest" class="me-chrome me-playtest is-hidden">
+			<div class="me-brand">{{title}}</div>
+			<div class="me-map">{{mapName}}</div>
+			<button id="me-edit" class="me-action">{{editLabel}}</button>
+			<button id="me-export-play" class="me-action">{{exportLabel}}</button>
+		</div>
+		<div id="me-bottom" class="me-chrome me-bottom">
+			<div class="me-status">{{statusLine}}</div>
+			<div class="me-hint">{{hint}}</div>
+		</div>
+	</div>
+</body>
+</rml>

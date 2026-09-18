@@ -31,6 +31,16 @@ local utilities = {
 		return (devMode and devMode > 0) and true or false
 	end,
 
+	IsMapEditor = function()
+		local flag = Spring.GetGameRulesParam('isMapEditor')
+		if flag and flag > 0 then
+			return true
+		end
+		local opts = Spring.GetModOptions and Spring.GetModOptions()
+		local v = opts and opts.map_editor
+		return v == true or v == 1 or v == "1"
+	end,
+
 	ShowDevUI = function ()
 		local devUI = Spring.GetConfigInt('DevUI', 0)
 		return (devUI > 0) and true or false

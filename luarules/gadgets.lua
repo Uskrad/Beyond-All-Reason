@@ -53,6 +53,16 @@ end
 if IsSyncedCode() then
 	local devModeEnabled = string.find(string.upper(Game.gameVersion), "$VERSION", 1, true)
 	Spring.SetGameRulesParam('isDevMode', devModeEnabled)
+
+	local mapEditorEnabled = 0
+	local ok, opts = pcall(Spring.GetModOptions)
+	if ok and opts then
+		local v = opts.map_editor
+		if v == true or v == 1 or v == "1" then
+			mapEditorEnabled = 1
+		end
+	end
+	Spring.SetGameRulesParam('isMapEditor', mapEditorEnabled)
 end
 
 --------------------------------------------------------------------------------

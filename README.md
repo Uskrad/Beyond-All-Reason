@@ -42,6 +42,10 @@ Ensure that you have the correct path by looking for the file `Beyond-All-Reason
 
 5. Now you can launch a match normally through the game UI. This match will use the dev copy of the LUA code which is in `BAR-install-directory/data/games/BAR.sdd`.
 
+### Map Editor (Dev)
+
+The in-game map editor is a game mode, not a separate tool. With **Beyond All Reason Dev** selected, launch `tools/StartScripts/startscript_map_editor.txt` (any installed map is only the first canvas). Type a **Name**, then **New Map** writes `maps/<Name>.sdd` and reloads onto it (blank name still uses Untitled NxN). Sculpt height/metal/grass, place features and buildings (Rotate on the Assets panel), paint splat, set start boxes, then **Save Map** (F7) writes that `.sdd` and packs a single-file archive (`maps/<Name>.sd7` if 7-Zip is installed, otherwise `.sdz`). **Snapshot** / **Restore** (F5/F6) are in-session restore points, not the map file.
+
 6. If developing Chobby also clone the code into the `games` directory. Follow the guide in the [Chobby README](https://github.com/beyond-all-reason/BYAR-Chobby#developing-the-lobby).
 
 7. (Optional, Advanced) If you want to run automated integration tests, see the [testing documentation](tools/headless_testing/README.md)

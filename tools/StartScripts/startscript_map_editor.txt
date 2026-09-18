@@ -1,0 +1,31 @@
+// In-game map editor. Name + New Map creates maps/<Name>.sdd and reloads. Save Map (F7) writes .sdd and packs .sd7/.sdz.
+[game]
+{
+	[allyteam0]
+	{
+		numallies = 0;
+	}
+	[team0]
+	{
+		allyteam = 0;
+		teamleader = 0;
+		side = Armada;
+		rgbcolor = 0.8 0.8 0.8;
+	}
+	[player0]
+	{
+		team = 0;
+		name = MapEditor;
+	}
+	[modoptions]
+	{
+		map_editor = 1;
+		ranked_game = 0;
+	}
+	gametype = Beyond All Reason $VERSION;
+	ishost = 1;
+	mapname = Comet Catcher Remake 1.8;
+	myplayername = MapEditor;
+	nohelperais = 1;
+	startpostype = 0;
+}

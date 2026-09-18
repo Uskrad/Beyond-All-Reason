@@ -201,6 +201,11 @@ if gadgetHandler:IsSyncedCode() then
 	end
 
 	function gadget:Initialize()
+		if Spring.Utilities.IsMapEditor() then
+			gadgetHandler:RemoveGadget(self)
+			return
+		end
+
 		if Spring.GetModOptions().deathmode == 'neverend' then
 			gadgetHandler:RemoveGadget(self)
 			return

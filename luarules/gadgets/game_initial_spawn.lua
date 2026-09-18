@@ -45,6 +45,7 @@ if gadgetHandler:IsSyncedCode() then
 	local tooCloseToSpawn = 350
 
 	local allowEnemyAIPlacement = Spring.GetModOptions().allow_enemy_ai_spawn_placement or false
+	local mapEditorEnabled = Spring.Utilities.IsMapEditor()
 
 	local spawnInitialFrame = Game.spawnInitialFrame
 	local spawnWarpInFrame = Game.spawnWarpInFrame
@@ -643,6 +644,10 @@ if gadgetHandler:IsSyncedCode() then
 	-- Spawning
 	----------------------------------------------------------------
 	function gadget:GameStart()
+		if mapEditorEnabled then
+			return
+		end
+
 		-- Only assign positions automatically for SPAWN_CHOOSE_IN_GAME mode
 		-- For AI teams or unplaced players that need positions assigned
 		if Game.startPosType == SPAWN_CHOOSE_IN_GAME then
@@ -693,6 +698,13 @@ if gadgetHandler:IsSyncedCode() then
 
 	local lastGameFrame = 0
 	function gadget:GameFrame(n)
+		if mapEditorEnabled then
+			if n > spawnWarpInFrame then
+				gadgetHandler:RemoveGadget(self)
+			end
+			return
+		end
+
 		if not scenarioSpawnsUnits then
             if n == spawnInitialFrame then
 

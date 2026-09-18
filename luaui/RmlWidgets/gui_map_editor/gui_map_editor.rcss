@@ -1,0 +1,337 @@
+body {
+	pointer-events: none;
+	font-family: Exo 2;
+}
+
+.me-root {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100vw;
+	height: 100vh;
+	pointer-events: none;
+	z-index: 8000;
+}
+
+.me-chrome {
+	pointer-events: auto;
+	background-color: rgba(28, 28, 28, 210);
+	border-color: rgba(20, 20, 20, 180);
+	border-width: 1dp;
+	decorator: image("/luaui/images/stripes-small.png" repeat);
+	image-color: rgba(32, 32, 32, 90);
+	color: #f2f2f2;
+	font-effect: outline(1dp black);
+}
+
+.me-top {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100vw;
+	height: 4.6vh;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	padding-left: 19.4vw;
+	padding-right: 1.2vw;
+}
+
+.me-brand {
+	font-size: 1.7vh;
+	font-weight: 800;
+	letter-spacing: 0.08vw;
+	margin-right: 1.4vw;
+}
+
+.me-map {
+	font-size: 1.45vh;
+	opacity: 0.85;
+	flex-grow: 1;
+}
+
+.me-dirty {
+	font-size: 1.35vh;
+	font-weight: 700;
+	color: #ffcc66;
+}
+
+.me-dock {
+	position: absolute;
+	left: 0;
+	top: 4.6vh;
+	width: 18.4vw;
+	bottom: 4.2vh;
+	padding: 1.0vh 0.8vw 1.0vh 0.8vw;
+	display: flex;
+	flex-direction: column;
+	overflow-y: hidden;
+}
+
+.me-tabs {
+	display: flex;
+	flex-direction: row;
+	margin-bottom: 1.0vh;
+	flex-shrink: 0;
+}
+
+.me-tab {
+	flex-grow: 1;
+	height: 3.1vh;
+	margin-right: 0.2vw;
+	background-color: rgba(18, 18, 18, 180);
+	border-color: rgba(70, 70, 70, 160);
+	border-width: 1dp;
+	border-radius: 0.35vh;
+	color: #ffffff;
+	font-family: Exo 2;
+	font-weight: 800;
+	font-size: 1.15vh;
+}
+
+.me-tab.is-active {
+	background-color: rgba(70, 120, 70, 210);
+	border-color: rgba(140, 210, 140, 200);
+}
+
+.me-panel {
+	display: flex;
+	flex-direction: column;
+	flex-grow: 1;
+	overflow-y: auto;
+	min-height: 0;
+}
+
+.me-subtabs {
+	display: flex;
+	flex-direction: row;
+	margin-bottom: 0.8vh;
+}
+
+.me-layers {
+	display: flex;
+	flex-direction: row;
+	margin-bottom: 1.0vh;
+}
+
+.me-layer {
+	flex-grow: 1;
+	height: 2.8vh;
+	margin-right: 0.15vw;
+	background-color: rgba(18, 18, 18, 180);
+	border-color: rgba(70, 70, 70, 160);
+	border-width: 1dp;
+	border-radius: 0.35vh;
+	color: #ffffff;
+	font-family: Exo 2;
+	font-weight: 700;
+	font-size: 1.05vh;
+}
+
+.me-layer.is-active {
+	background-color: rgba(70, 120, 70, 210);
+	border-color: rgba(140, 210, 140, 200);
+}
+
+.me-palette-toggle {
+	display: flex;
+	flex-direction: row;
+	margin: 0.6vh 0 0.4vh 0;
+}
+
+.me-asset-name {
+	font-size: 1.15vh;
+	overflow: hidden;
+}
+
+.me-section-label {
+	font-size: 1.35vh;
+	font-weight: 800;
+	letter-spacing: 0.12vw;
+	margin-bottom: 1.1vh;
+	opacity: 0.7;
+}
+
+.me-tools {
+	display: flex;
+	flex-direction: column;
+	margin-bottom: 1.6vh;
+}
+
+.me-tool,
+.me-action,
+.me-step {
+	background-color: rgba(18, 18, 18, 180);
+	border-color: rgba(70, 70, 70, 160);
+	border-width: 1dp;
+	border-radius: 0.35vh;
+	color: #ffffff;
+	font-family: Exo 2;
+	font-weight: 700;
+}
+
+.me-tool {
+	width: 100%;
+	height: 3.3vh;
+	margin-bottom: 0.55vh;
+	font-size: 1.45vh;
+}
+
+.me-tool.is-active {
+	background-color: rgba(70, 120, 70, 210);
+	border-color: rgba(140, 210, 140, 200);
+}
+
+.me-row {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-bottom: 0.7vh;
+	flex-shrink: 0;
+}
+
+.me-row-label {
+	width: 5.2vw;
+	font-size: 1.25vh;
+	opacity: 0.8;
+}
+
+.me-value {
+	flex-grow: 1;
+	text-align: center;
+	font-size: 1.4vh;
+	font-weight: 700;
+}
+
+.me-step {
+	width: 2.1vw;
+	height: 2.6vh;
+	font-size: 1.5vh;
+}
+
+.me-name {
+	width: 100%;
+	height: 2.8vh;
+	margin-bottom: 0.7vh;
+	padding-left: 0.4vw;
+	background-color: rgba(12, 12, 12, 220);
+	border-color: rgba(90, 90, 90, 180);
+	border-width: 1dp;
+	border-radius: 0.35vh;
+	color: #ffffff;
+	font-family: Exo 2;
+	font-weight: 700;
+	font-size: 1.3vh;
+	caret-color: #ffffff;
+}
+
+.me-name:focus {
+	border-color: rgba(140, 210, 140, 200);
+}
+
+.me-actions {
+	display: flex;
+	flex-direction: row;
+	margin-top: 1.4vh;
+	flex-shrink: 0;
+}
+
+.me-panel .me-actions {
+	margin-top: 0.55vh;
+	margin-bottom: 0.55vh;
+}
+
+.me-action {
+	flex-grow: 1;
+	height: 3.2vh;
+	margin-right: 0.4vw;
+	font-size: 1.35vh;
+}
+
+.me-bottom {
+	position: absolute;
+	left: 0;
+	bottom: 0;
+	width: 100vw;
+	height: 4.2vh;
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	padding-left: 19.4vw;
+	padding-right: 1.2vw;
+}
+
+.me-status {
+	font-size: 1.4vh;
+	font-weight: 700;
+	margin-right: 1.6vw;
+}
+
+.me-hint {
+	font-size: 1.2vh;
+	opacity: 0.65;
+	flex-grow: 1;
+}
+
+.me-map-now {
+	font-size: 1.25vh;
+	font-weight: 700;
+	opacity: 0.85;
+	margin-bottom: 0.7vh;
+}
+
+.me-tip {
+	margin-top: 0.8vh;
+	padding: 0.8vh 0.45vw;
+	background-color: rgba(12, 12, 12, 180);
+	border-color: rgba(70, 70, 70, 140);
+	border-width: 1dp;
+	border-radius: 0.35vh;
+	flex-shrink: 0;
+	min-height: 11vh;
+}
+
+.me-tip-title {
+	font-size: 1.25vh;
+	font-weight: 800;
+	margin-bottom: 0.45vh;
+}
+
+.me-tip-body {
+	font-size: 1.12vh;
+	line-height: 1.35;
+	opacity: 0.88;
+}
+
+.is-hidden {
+	display: none;
+}
+
+.me-playtest {
+	position: absolute;
+	left: 0;
+	top: 0;
+	width: 100vw;
+	height: 4.6vh;
+	display: none;
+	flex-direction: row;
+	align-items: center;
+	padding-left: 1.2vw;
+	padding-right: 1.2vw;
+	pointer-events: auto;
+}
+
+.me-playtest .me-action {
+	width: 12vw;
+	margin-right: 0.5vw;
+}
+
+.me-root.is-playtest .me-playtest {
+	display: flex;
+}
+
+.me-root.is-playtest .me-top,
+.me-root.is-playtest .me-dock,
+.me-root.is-playtest .me-bottom {
+	display: none;
+}

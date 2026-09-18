@@ -1,0 +1,15 @@
+---
+description: In-game BAR map editor is the active product — AAA slices only
+alwaysApply: true
+---
+
+# Map editor
+
+This fork’s active product is an **in-game** Recoil map editor (Lua gadget + RmlUi), not a side tool.
+
+- Read `.cursor/plans/map-editor.md`. Planned slices are done; do not invent a next slice unless Ben names one.
+- Use game assets (FeatureDefs, UnitDefs, existing map textures, BAR chrome). Do not invent a parallel art/UI stack.
+- Every slice ships a working tool: brush/gizmo preview, undo, shortcuts, status. No command-only debug UX, no empty toolbar, no raw Lua dumps as the UI.
+- Keep new code isolated (`map_editor` gadget, `gui_map_editor` Rml widget, small gates). Do not turn `dbg_*` widgets into the product — absorb them.
+- `tools/map-editor/` is not the editor UI. Packing is in-game on Save Map (`.sd7` via 7-Zip, otherwise zip `.sdz`).
+- Recoil needs a map as the canvas. Type a **Name**, then **New Map** creates a blank `.sdd` and reloads the editor onto it. F7 saves the live session back into a loadable `maps/*.sdd` and packs `.sd7` or `.sdz`.

@@ -733,6 +733,9 @@ function widget:GameFrame(gf)
 end
 
 function widget:MousePress(x,y,button)
+	if Spring.Utilities.IsMapEditor and Spring.Utilities.IsMapEditor() then
+		return false
+	end
 	if placementMode then
 		return true
 	end
@@ -747,6 +750,10 @@ function widget:Update(dt)
 	if firstUpdate then
 		firstUpdate = false
 		clearGeothermalGrass()	-- uses Spring.GetAllFeatures() which is empty at the time of widget:Initialize
+	end
+
+	if Spring.Utilities.IsMapEditor and Spring.Utilities.IsMapEditor() then
+		return
 	end
 
 	if not placementMode then return end
@@ -1083,6 +1090,15 @@ function widget:Initialize()
 			defineUploadGrassInstanceVBOData()
 			MakeAndAttachToVAO()
 		end
+	end
+	WG['grassgl4'].syncFromEngine = function()
+		placementMode = true
+		makeGrassInstanceVBO()
+		if grassInstanceVBO then
+			defineUploadGrassInstanceVBOData()
+			MakeAndAttachToVAO()
+		end
+		processChanges = grassInstanceData and next(grassInstanceData) ~= nil
 	end
 	makeGrassPatchVBO(grassConfig.patchSize)
 	makeGrassInstanceVBO()
