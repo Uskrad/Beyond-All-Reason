@@ -1,8 +1,17 @@
 local gadget = gadget ---@type Gadget
 
 local function mapEditorRequested()
-	local v = Spring.GetModOptions().map_editor
-	return v == true or v == 1 or v == "1"
+	local opts = Spring.GetModOptions()
+	local v = opts.map_editor
+	local v2 = opts.mapeditor
+	if v == true or v == 1 or v == "1" or v2 == true or v2 == 1 or v2 == "1" then
+		return true
+	end
+	local ver = Game and Game.gameVersion or ""
+	if string.find(string.upper(ver), "$VERSION", 1, true) then
+		return true
+	end
+	return false
 end
 
 function gadget:GetInfo()
@@ -13,7 +22,7 @@ function gadget:GetInfo()
 		date = "2026-09",
 		license = "GNU GPL, v2 or later",
 		layer = -10000,
-		enabled = mapEditorRequested(),
+		enabled = true,
 	}
 end
 
@@ -141,12 +150,92 @@ if gadgetHandler:IsSyncedCode() then
 	end
 
 	local function authorized(playerID)
+		if mapEditorRequested() then
+			return true
+		end
+		if Spring.Utilities and Spring.Utilities.IsMapEditor and Spring.Utilities.IsMapEditor() then
+			return true
+		end
 		local _, _, spec = Spring.GetPlayerInfo(playerID, false)
 		return not spec
 	end
 
 	local function cellKey(x, z)
 		return x * 1048576 + z
+	end
+
+	local liveMirror = { h = false, v = false, radial = 0 }
+
+	local function makeXforms(mh, mv, folds)
+		folds = tonumber(folds) or 0
+		if folds < 3 then
+			folds = 0
+		end
+		local mapX = Game.mapSizeX or 0
+		local mapZ = Game.mapSizeZ or 0
+		local ox = mapX * 0.5
+		local oz = mapZ * 0.5
+		local flips = { { false, false } }
+		if mh then
+			local n = #flips
+			for i = 1, n do
+				flips[#flips + 1] = { true, flips[i][2] }
+			end
+		end
+		if mv then
+			local n = #flips
+			for i = 1, n do
+				flips[#flips + 1] = { flips[i][1], true }
+			end
+		end
+		local ks = { 0 }
+		if folds >= 3 then
+			ks = {}
+			for k = 0, folds - 1 do
+				ks[#ks + 1] = k
+			end
+		end
+		local xforms = {}
+		for i = 1, #flips do
+			local flipH = flips[i][1]
+			local flipV = flips[i][2]
+			for ki = 1, #ks do
+				local k = ks[ki]
+				xforms[#xforms + 1] = function(x, z)
+					local px, pz = x, z
+					local rot = 0
+					if flipH then
+						px = mapX - px
+					end
+					if flipV then
+						pz = mapZ - pz
+						rot = math.pi - rot
+					end
+					if k > 0 then
+						local ang = (2 * math.pi / folds) * k
+						local dx = px - ox
+						local dz = pz - oz
+						local c = math.cos(ang)
+						local s = math.sin(ang)
+						px = ox + dx * c - dz * s
+						pz = oz + dx * s + dz * c
+						rot = rot + ang
+					end
+					if px < 0 then
+						px = 0
+					elseif px > mapX then
+						px = mapX
+					end
+					if pz < 0 then
+						pz = 0
+					elseif pz > mapZ then
+						pz = mapZ
+					end
+					return px, pz, rot, flipH, flipV
+				end
+			end
+		end
+		return xforms
 	end
 
 	local function clampRadius(radius)
@@ -458,21 +547,7 @@ if gadgetHandler:IsSyncedCode() then
 		end
 	end
 
-	local function applyRamp(cx, cz)
-		if not stroke then
-			return
-		end
-		stroke.endX = cx
-		stroke.endZ = cz
-		if #stroke.xs > 0 then
-			applyHeights(stroke.xs, stroke.zs, stroke.old)
-		end
-		local ax = stroke.startX
-		local az = stroke.startZ
-		local bx = cx
-		local bz = cz
-		local ah = stroke.centerH
-		local bh = Spring.GetGroundHeight(bx, bz)
+	local function stampRampCorridor(ax, az, bx, bz, ah, bh, mix, xs, zs, hs)
 		local radius = stroke.radius
 		local abx = bx - ax
 		local abz = bz - az
@@ -480,12 +555,10 @@ if gadgetHandler:IsSyncedCode() then
 		if len2 < 1024 then
 			return
 		end
-		local mix = strokeMix()
 		local x0 = math.floor((math.min(ax, bx) - radius) / SQUARE) * SQUARE
 		local z0 = math.floor((math.min(az, bz) - radius) / SQUARE) * SQUARE
 		local x1 = math.ceil((math.max(ax, bx) + radius) / SQUARE) * SQUARE
 		local z1 = math.ceil((math.max(az, bz) + radius) / SQUARE) * SQUARE
-		local xs, zs, hs = {}, {}, {}
 		for z = z0, z1, SQUARE do
 			for x = x0, x1, SQUARE do
 				local t = ((x - ax) * abx + (z - az) * abz) / len2
@@ -511,30 +584,44 @@ if gadgetHandler:IsSyncedCode() then
 							remember(x, z, old)
 							stroke.oldByKey[key] = old
 						end
-						local target = ah + (bh - ah) * t
 						local n = #xs + 1
 						xs[n] = x
 						zs[n] = z
-						hs[n] = old + (target - old) * weight
+						hs[n] = old + (ah + (bh - ah) * t - old) * weight
 					end
 				end
 			end
+		end
+	end
+
+	local function applyRamp(cx, cz)
+		if not stroke then
+			return
+		end
+		stroke.endX = cx
+		stroke.endZ = cz
+		if #stroke.xs > 0 then
+			applyHeights(stroke.xs, stroke.zs, stroke.old)
+		end
+		local ah = stroke.centerH
+		local bh = Spring.GetGroundHeight(cx, cz)
+		local mix = strokeMix()
+		local xs, zs, hs = {}, {}, {}
+		local xforms = stroke.xforms
+		for i = 1, #xforms do
+			local ax, az = xforms[i](stroke.startX, stroke.startZ)
+			local bx, bz = xforms[i](cx, cz)
+			stampRampCorridor(ax, az, bx, bz, ah, bh, mix, xs, zs, hs)
 		end
 		if #xs > 0 then
 			applyHeights(xs, zs, hs)
 		end
 	end
 
-	local function applyBrush(cx, cz)
-		if stroke.tool == "ramp" then
-			applyRamp(cx, cz)
-			return
-		end
+	local function applyOneBrush(cx, cz)
 		if stroke.tool == "smooth" then
 			applySmoothBrush(cx, cz)
-			return
-		end
-		if stroke.kind == KIND_METAL then
+		elseif stroke.kind == KIND_METAL then
 			applyMetalBrush(cx, cz)
 		elseif stroke.kind == KIND_GRASS then
 			applyGrassBrush(cx, cz)
@@ -543,10 +630,34 @@ if gadgetHandler:IsSyncedCode() then
 		end
 	end
 
-	local function beginStroke(tool, x, z, radius, strength, falloff, maxMode)
+	local function applyBrush(cx, cz)
+		if stroke.tool == "ramp" then
+			applyRamp(cx, cz)
+			return
+		end
+		local xforms = stroke.xforms
+		for i = 1, #xforms do
+			local x, z = xforms[i](cx, cz)
+			applyOneBrush(x, z)
+		end
+	end
+
+	local function beginStroke(tool, x, z, radius, strength, falloff, maxMode, mh, mv, radial)
 		if stroke then
 			return
 		end
+		if mh == nil then
+			mh = liveMirror.h
+		end
+		if mv == nil then
+			mv = liveMirror.v
+		end
+		if radial == nil then
+			radial = liveMirror.radial
+		end
+		liveMirror.h = not not mh
+		liveMirror.v = not not mv
+		liveMirror.radial = tonumber(radial) or 0
 		stroke = {
 			tool = tool,
 			kind = toolKind(tool),
@@ -564,6 +675,7 @@ if gadgetHandler:IsSyncedCode() then
 			old = {},
 			seen = {},
 			oldByKey = {},
+			xforms = makeXforms(liveMirror.h, liveMirror.v, liveMirror.radial),
 		}
 		applyBrush(x, z)
 	end
@@ -1224,6 +1336,16 @@ if gadgetHandler:IsSyncedCode() then
 			return
 		end
 		if cmd == "begin" then
+			local mh, mv, radial
+			if parts[9] ~= nil then
+				mh = parts[9] == "1"
+			end
+			if parts[10] ~= nil then
+				mv = parts[10] == "1"
+			end
+			if parts[11] ~= nil then
+				radial = tonumber(parts[11])
+			end
 			beginStroke(
 				parts[2],
 				tonumber(parts[3]) or 0,
@@ -1231,8 +1353,15 @@ if gadgetHandler:IsSyncedCode() then
 				tonumber(parts[5]) or 240,
 				tonumber(parts[6]) or 12,
 				tonumber(parts[7]) or 0.7,
-				parts[8] == "1"
+				parts[8] == "1",
+				mh,
+				mv,
+				radial
 			)
+		elseif cmd == "mirror" then
+			liveMirror.h = parts[2] == "1"
+			liveMirror.v = parts[3] == "1"
+			liveMirror.radial = tonumber(parts[4]) or 0
 		elseif cmd == "paint" then
 			continueStroke(tonumber(parts[2]) or 0, tonumber(parts[3]) or 0)
 		elseif cmd == "end" then
@@ -1242,11 +1371,49 @@ if gadgetHandler:IsSyncedCode() then
 		elseif cmd == "redo" then
 			redo()
 		elseif cmd == "placefeat" then
-			placeFeature(parts[2], tonumber(parts[3]) or 0, tonumber(parts[4]) or 0, tonumber(parts[5]) or 0, playerID)
+			local xforms = makeXforms(liveMirror.h, liveMirror.v, liveMirror.radial)
+			local heading = tonumber(parts[5]) or 0
+			for i = 1, #xforms do
+				local px, pz, rot, flipH, flipV = xforms[i](tonumber(parts[3]) or 0, tonumber(parts[4]) or 0)
+				local h = heading
+				if flipH then
+					h = -h
+				end
+				if flipV then
+					h = 32768 - h
+				end
+				placeFeature(parts[2], px, pz, h + rot * 65536 / (2 * math.pi), playerID)
+			end
 		elseif cmd == "placeunit" then
-			placeUnit(parts[2], tonumber(parts[3]) or 0, tonumber(parts[4]) or 0, tonumber(parts[5]) or 0, playerID)
+			local xforms = makeXforms(liveMirror.h, liveMirror.v, liveMirror.radial)
+			local facing = tonumber(parts[5]) or 0
+			for i = 1, #xforms do
+				local px, pz, rot, flipH, flipV = xforms[i](tonumber(parts[3]) or 0, tonumber(parts[4]) or 0)
+				local face = facing
+				if flipH then
+					if face == 1 then
+						face = 3
+					elseif face == 3 then
+						face = 1
+					end
+				end
+				if flipV then
+					if face == 0 then
+						face = 2
+					elseif face == 2 then
+						face = 0
+					end
+				end
+				face = math.floor(face + rot / (math.pi / 2) + 0.5) % 4
+				placeUnit(parts[2], px, pz, face, playerID)
+			end
 		elseif cmd == "delete" then
-			deleteNearest(tonumber(parts[2]) or 0, tonumber(parts[3]) or 0, tonumber(parts[4]) or 96)
+			local xforms = makeXforms(liveMirror.h, liveMirror.v, liveMirror.radial)
+			local radius = tonumber(parts[4]) or 96
+			for i = 1, #xforms do
+				local px, pz = xforms[i](tonumber(parts[2]) or 0, tonumber(parts[3]) or 0)
+				deleteNearest(px, pz, radius)
+			end
 		elseif cmd == "startbox" then
 			setStartBox(
 				tonumber(parts[2]) or 0,
@@ -1541,9 +1708,12 @@ else
 		end
 		local dest, name, packed = compileMap.writeEditedMap(wantedName)
 		if dest then
-			Spring.Echo("Map Editor saved map \"" .. tostring(name) .. "\" to " .. dest)
+			Spring.Echo("Map Editor saved map \"" .. tostring(name) .. "\"")
+			Spring.Echo("Map Editor working copy: " .. tostring(dest))
 			if packed then
-				Spring.Echo("Map Editor packed \"" .. tostring(name) .. "\" to " .. packed)
+				Spring.Echo("Map Editor skirmish file: " .. tostring(packed) .. " — restart the lobby to see it")
+			else
+				Spring.Echo("Map Editor pack failed — skirmish will not list this map until a .sd7/.sdz lands in the BAR data maps folder")
 			end
 		else
 			Spring.Echo("Map Editor save failed: " .. tostring(name))

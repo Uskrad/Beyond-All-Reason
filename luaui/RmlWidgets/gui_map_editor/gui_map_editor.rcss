@@ -5,12 +5,12 @@ body {
 
 .me-root {
 	position: absolute;
-	left: 0;
-	top: 0;
-	width: 100vw;
-	height: 100vh;
+	left: 0px;
+	top: 0px;
+	right: 0px;
+	bottom: 0px;
 	pointer-events: none;
-	z-index: 8000;
+	z-index: 40000;
 }
 
 .me-chrome {
@@ -24,24 +24,11 @@ body {
 	font-effect: outline(1dp black);
 }
 
-.me-top {
-	position: absolute;
-	left: 0;
-	top: 0;
-	width: 100vw;
-	height: 4.6vh;
-	display: flex;
-	flex-direction: row;
-	align-items: center;
-	padding-left: 19.4vw;
-	padding-right: 1.2vw;
-}
-
 .me-brand {
-	font-size: 1.7vh;
+	font-size: 1.55vh;
 	font-weight: 800;
-	letter-spacing: 0.08vw;
-	margin-right: 1.4vw;
+	letter-spacing: 0.06vw;
+	flex-grow: 1;
 }
 
 .me-map {
@@ -51,34 +38,44 @@ body {
 }
 
 .me-dirty {
-	font-size: 1.35vh;
+	font-size: 1.2vh;
 	font-weight: 700;
 	color: #ffcc66;
 }
 
 .me-dock {
 	position: absolute;
-	left: 0;
-	top: 4.6vh;
-	width: 18.4vw;
-	bottom: 4.2vh;
-	padding: 1.0vh 0.8vw 1.0vh 0.8vw;
+	left: 0px;
+	top: 0px;
+	width: 18vw;
+	bottom: 0px;
+	padding: 1.2vh 0.9vw 1.2vh 0.9vw;
 	display: flex;
 	flex-direction: column;
-	overflow-y: hidden;
+	pointer-events: auto;
+	z-index: 50000;
 }
 
-.me-tabs {
+.me-sidetabs {
 	display: flex;
 	flex-direction: row;
-	margin-bottom: 1.0vh;
+	margin-bottom: 0.8vh;
+	flex-shrink: 0;
+}
+
+.me-dock-head {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	margin-bottom: 0.8vh;
 	flex-shrink: 0;
 }
 
 .me-tab {
 	flex-grow: 1;
-	height: 3.1vh;
-	margin-right: 0.2vw;
+	height: 3.4vh;
+	margin: 0;
+	margin-right: 0.15vw;
 	background-color: rgba(18, 18, 18, 180);
 	border-color: rgba(70, 70, 70, 160);
 	border-width: 1dp;
@@ -97,9 +94,6 @@ body {
 .me-panel {
 	display: flex;
 	flex-direction: column;
-	flex-grow: 1;
-	overflow-y: auto;
-	min-height: 0;
 }
 
 .me-subtabs {
@@ -250,14 +244,14 @@ body {
 
 .me-bottom {
 	position: absolute;
-	left: 0;
+	left: 18vw;
 	bottom: 0;
-	width: 100vw;
+	width: 82vw;
 	height: 4.2vh;
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	padding-left: 19.4vw;
+	padding-left: 1.2vw;
 	padding-right: 1.2vw;
 }
 
@@ -330,7 +324,6 @@ body {
 	display: flex;
 }
 
-.me-root.is-playtest .me-top,
 .me-root.is-playtest .me-dock,
 .me-root.is-playtest .me-bottom {
 	display: none;

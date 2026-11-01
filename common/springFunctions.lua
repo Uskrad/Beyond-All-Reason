@@ -38,7 +38,12 @@ local utilities = {
 		end
 		local opts = Spring.GetModOptions and Spring.GetModOptions()
 		local v = opts and opts.map_editor
-		return v == true or v == 1 or v == "1"
+		local v2 = opts and opts.mapeditor
+		if v == true or v == 1 or v == "1" or v2 == true or v2 == 1 or v2 == "1" then
+			return true
+		end
+		local dev = Spring.GetGameRulesParam('isDevMode')
+		return (dev and dev > 0) and true or false
 	end,
 
 	ShowDevUI = function ()

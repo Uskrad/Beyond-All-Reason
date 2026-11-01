@@ -1,8 +1,17 @@
 if not RmlUi then
-	return
+	Spring.Echo("Map Editor: RmlUi missing — chrome will use fallback draw")
 end
 
 local widget = widget ---@type Widget
+
+local function editorRequested()
+	local ok, opts = pcall(Spring.GetModOptions)
+	if not ok or type(opts) ~= "table" then
+		return false
+	end
+	local v, v2 = opts.map_editor, opts.mapeditor
+	return v == true or v == 1 or v == "1" or v2 == true or v2 == 1 or v2 == "1"
+end
 
 function widget:GetInfo()
 	return {
@@ -15,10 +24,6 @@ function widget:GetInfo()
 		enabled = true,
 		handler = true,
 	}
-end
-
-if not Spring.Utilities.IsMapEditor() then
-	return false
 end
 
 include("keysym.h.lua")
@@ -139,6 +144,7 @@ local TEX_SIZE = 512
 local SPLAT_CH = { splat1 = 1, splat2 = 2, splat3 = 3, splat4 = 4 }
 local METAL_SQUARE = Game.metalMapSquareSize or 16
 local GRASS_STEP = 16
+local RADIAL_STEPS = { 0, 3, 4, 5, 6, 8 }
 
 local HUD_TO_DISABLE = {
 	"Pregame UI",
@@ -154,6 +160,9 @@ local HUD_TO_DISABLE = {
 	"Idle Builders",
 	"Start Boxes",
 	"Map Lighting Adjuster",
+	"Minimap",
+	"RelativeMinimap",
+	"Picture-in-Picture Minimap",
 }
 
 local spTraceScreenRay = Spring.TraceScreenRay
@@ -162,7 +171,6 @@ local spGetGroundHeight = Spring.GetGroundHeight
 local spGetGameRulesParam = Spring.GetGameRulesParam
 local spGetMetalAmount = Spring.GetMetalAmount
 local spGetGrass = Spring.GetGrass
-local spI18N = Spring.I18N
 local glColor = gl.Color
 local glLineWidth = gl.LineWidth
 local glDrawGroundCircle = gl.DrawGroundCircle
@@ -207,8 +215,15 @@ local widgetState = {
 	naming = false,
 	reloading = false,
 	hoverTip = nil,
+	clickEcho = 0,
+	tfArmed = false,
+	tfUiHidden = false,
+	projectLoadSeen = false,
 	lastPaintLayer = "metal",
 	lastMapLayer = "starts",
+	mirrorH = false,
+	mirrorV = false,
+	radial = 0,
 	lightRev = -1,
 	lightReady = false,
 	light = {
@@ -290,6 +305,11 @@ local initialModel = {
 	newSizeValue = "16×16",
 	nameLabel = "Name",
 	namePlaceholder = "Map name",
+	mirrorLabel = "Symmetry",
+	mirrorH = "Mirror H",
+	mirrorV = "Mirror V",
+	radialLabel = "Radial",
+	radialValue = "Off",
 	radiusValue = "240",
 	strengthValue = "12",
 	falloffValue = "70%",
@@ -298,15 +318,153 @@ local initialModel = {
 }
 
 local function t(key, fallback)
-	local value = spI18N("ui.mapEditor." .. key)
-	if not value or value == "" or value:find("ui.mapEditor", 1, true) then
+	local fn = Spring.I18N
+	if type(fn) ~= "function" then
+		return fallback
+	end
+	local ok, value = pcall(fn, "ui.mapEditor." .. key)
+	if not ok or type(value) ~= "string" or value == "" or value:find("ui.mapEditor", 1, true) then
 		return fallback
 	end
 	return value
 end
 
+local function makeXforms(mh, mv, folds)
+	folds = tonumber(folds) or 0
+	if folds < 3 then
+		folds = 0
+	end
+	local mapX = Game.mapSizeX or 0
+	local mapZ = Game.mapSizeZ or 0
+	local ox = mapX * 0.5
+	local oz = mapZ * 0.5
+	local flips = { { false, false } }
+	if mh then
+		local n = #flips
+		for i = 1, n do
+			flips[#flips + 1] = { true, flips[i][2] }
+		end
+	end
+	if mv then
+		local n = #flips
+		for i = 1, n do
+			flips[#flips + 1] = { flips[i][1], true }
+		end
+	end
+	local ks = { 0 }
+	if folds >= 3 then
+		ks = {}
+		for k = 0, folds - 1 do
+			ks[#ks + 1] = k
+		end
+	end
+	local xforms = {}
+	for i = 1, #flips do
+		local flipH = flips[i][1]
+		local flipV = flips[i][2]
+		for ki = 1, #ks do
+			local k = ks[ki]
+			xforms[#xforms + 1] = function(x, z)
+				local px, pz = x, z
+				if flipH then
+					px = mapX - px
+				end
+				if flipV then
+					pz = mapZ - pz
+				end
+				if k > 0 then
+					local ang = (2 * math.pi / folds) * k
+					local dx = px - ox
+					local dz = pz - oz
+					local c = math.cos(ang)
+					local s = math.sin(ang)
+					px = ox + dx * c - dz * s
+					pz = oz + dx * s + dz * c
+				end
+				return px, pz
+			end
+		end
+	end
+	return xforms
+end
+
+local function currentXforms()
+	return makeXforms(widgetState.mirrorH, widgetState.mirrorV, widgetState.radial)
+end
+
+local function radialLabelValue()
+	local n = widgetState.radial or 0
+	if n < 3 then
+		return t("radialOff", "Off")
+	end
+	return tostring(n)
+end
+
 local function send(body)
 	Spring.SendLuaRulesMsg(MSG_PREFIX .. body)
+end
+
+local function sendMirror()
+	send(string.format(
+		"mirror,%s,%s,%d",
+		widgetState.mirrorH and "1" or "0",
+		widgetState.mirrorV and "1" or "0",
+		widgetState.radial or 0
+	))
+end
+
+local function syncMirrorButtons()
+	if not widgetState.document then
+		return
+	end
+	local h = widgetState.document:GetElementById("mirror-h")
+	local v = widgetState.document:GetElementById("mirror-v")
+	if h then
+		h:SetClass("is-active", widgetState.mirrorH)
+	end
+	if v then
+		v:SetClass("is-active", widgetState.mirrorV)
+	end
+end
+
+local function toggleMirrorH()
+	widgetState.mirrorH = not widgetState.mirrorH
+	sendMirror()
+	syncMirrorButtons()
+	if widgetState.dmHandle then
+		widgetState.dmHandle.radialValue = radialLabelValue()
+	end
+end
+
+local function toggleMirrorV()
+	widgetState.mirrorV = not widgetState.mirrorV
+	sendMirror()
+	syncMirrorButtons()
+	if widgetState.dmHandle then
+		widgetState.dmHandle.radialValue = radialLabelValue()
+	end
+end
+
+local function adjustRadial(dir)
+	local cur = widgetState.radial or 0
+	local idx = 1
+	for i = 1, #RADIAL_STEPS do
+		if RADIAL_STEPS[i] == cur then
+			idx = i
+			break
+		end
+	end
+	idx = idx + dir
+	if idx < 1 then
+		idx = 1
+	elseif idx > #RADIAL_STEPS then
+		idx = #RADIAL_STEPS
+	end
+	widgetState.radial = RADIAL_STEPS[idx]
+	sendMirror()
+	if widgetState.dmHandle then
+		widgetState.dmHandle.radialValue = radialLabelValue()
+	end
 end
 
 local function channel8(v)
@@ -405,9 +563,87 @@ local function nameSuffix()
 	return "," .. name
 end
 
+local function liveProjectSlug()
+	local mp = WG and WG.MapProject
+	if mp and mp.current then
+		local cur = mp.current()
+		if type(cur) == "string" and cur ~= "" then
+			return cur
+		end
+	end
+	local typed = readTypedName()
+	if typed ~= "" then
+		return typed
+	end
+end
+
+local compileMapMod
+
+local function packSkirmishMap(slug)
+	if not compileMapMod then
+		local ok, compileMap = pcall(VFS.Include, "luarules/gadgets/include/map_editor_compile.lua")
+		if not ok or type(compileMap) ~= "table" or not compileMap.writeEditedMap then
+			Spring.Echo("Map Editor: skirmish pack include failed: " .. tostring(compileMap))
+			return nil
+		end
+		compileMapMod = compileMap
+	end
+	local dest, name, packed = compileMapMod.writeEditedMap(slug)
+	if dest then
+		Spring.Echo("Map Editor: skirmish working copy " .. tostring(dest))
+	end
+	if packed then
+		Spring.Echo("Map Editor: skirmish file " .. tostring(packed))
+	end
+	return packed or dest
+end
+
+local function saveLiveProject()
+	local mp = WG and WG.MapProject
+	if mp and mp.isLoading and mp.isLoading() then
+		Spring.Echo("Map Editor: save blocked — project still loading (would wipe height)")
+		return false
+	end
+	if not (WG and WG.TerraformBrush) then
+		Spring.Echo("Map Editor: save blocked — terraform brush not loaded (would wipe height)")
+		return false
+	end
+	local slug = liveProjectSlug()
+	if not slug then
+		Spring.Echo("Map Editor: type a Name before save")
+		return false
+	end
+	if mp and mp.save then
+		local bak = "MapProjects/" .. slug .. "/heightmap.png"
+		local src = io and io.open(bak, "rb")
+		if src then
+			local data = src:read("*a")
+			src:close()
+			if data and #data > 0 then
+				local dst = io.open(bak .. ".bak", "wb")
+				if dst then
+					dst:write(data)
+					dst:close()
+				end
+			end
+		end
+		local ok = mp.save(slug)
+		Spring.Echo("Map Editor: Map Project save '" .. slug .. "' started=" .. tostring(ok))
+		return ok and true or false
+	end
+	Spring.Echo("Map Editor: Map Project missing — '" .. slug .. "' will only pack for skirmish")
+	return true
+end
+
 local function exportMap()
+	if not saveLiveProject() then
+		return
+	end
 	saveSplatDump()
-	send("export" .. nameSuffix())
+	local slug = liveProjectSlug()
+	if not packSkirmishMap(slug) then
+		send("export" .. nameSuffix())
+	end
 end
 
 local NEW_MAP_SIZES = { 8, 12, 16, 20, 24 }
@@ -451,12 +687,174 @@ local function groundPos()
 end
 
 local function mouseOnChrome()
+	local mx, my = spGetMouseState()
+	local vsx = Spring.GetViewGeometry()
+	if not mx or not vsx then
+		return false
+	end
+	if mx <= vsx * 0.18 then
+		return true
+	end
 	local ctx = widgetState.rmlContext
 	return ctx and ctx.IsMouseInteracting and ctx:IsMouseInteracting()
 end
 
+local clickHandlers = {}
+local lastClick = { id = nil, t = 0 }
+
+local function fireClick(id)
+	local fn = clickHandlers[id]
+	if not fn then
+		return
+	end
+	local now = os.clock()
+	if lastClick.id == id and (now - lastClick.t) < 0.2 then
+		return
+	end
+	lastClick.id = id
+	lastClick.t = now
+	fn()
+	widgetState.clickEcho = (widgetState.clickEcho or 0) + 1
+	if widgetState.clickEcho <= 8 then
+		Spring.Echo("Map Editor: click " .. tostring(id))
+	end
+end
+
+local function hoveredClickId()
+	local ctx = widgetState.rmlContext
+	if not ctx then
+		return nil
+	end
+	local el = ctx.hover_element
+	if not el and ctx.GetHoverElement then
+		el = ctx:GetHoverElement()
+	end
+	while el do
+		local id = el.id
+		if (not id or id == "") and el.GetId then
+			id = el:GetId()
+		end
+		if id and clickHandlers[id] then
+			return id
+		end
+		if el.GetParentNode then
+			el = el:GetParentNode()
+		else
+			el = el.parent_node
+		end
+	end
+	return nil
+end
+
+local function pointInElement(el, mx, my)
+	if not el then
+		return false
+	end
+	local vsx, vsy = Spring.GetViewGeometry()
+	if not vsx then
+		return false
+	end
+	local l = el.absolute_left
+	if l == nil and el.GetAbsoluteLeft then
+		l = el:GetAbsoluteLeft()
+	end
+	local t = el.absolute_top
+	if t == nil and el.GetAbsoluteTop then
+		t = el:GetAbsoluteTop()
+	end
+	local w = el.client_width
+	if w == nil and el.GetClientWidth then
+		w = el:GetClientWidth()
+	end
+	local h = el.client_height
+	if h == nil and el.GetClientHeight then
+		h = el:GetClientHeight()
+	end
+	if not l or not t or not w or not h or w <= 0 or h <= 0 then
+		return false
+	end
+	local rmlY = vsy - my
+	return mx >= l and mx <= l + w and rmlY >= t and rmlY <= t + h
+end
+
+local function clickedId(mx, my)
+	local id = hoveredClickId()
+	if id then
+		return id
+	end
+	local document = widgetState.document
+	if not document then
+		return nil
+	end
+	for hid, _ in pairs(clickHandlers) do
+		local el = document:GetElementById(hid)
+		if pointInElement(el, mx, my) then
+			return hid
+		end
+	end
+	return nil
+end
+
+local function hideEngineMinimap()
+	if widgetState.playtesting then
+		return
+	end
+	Spring.SendCommands("minimap minimize 1")
+	if gl and gl.ConfigMiniMap then
+		gl.ConfigMiniMap(0, 0, 1, 1)
+	end
+end
+
+local function showEngineMinimap()
+	Spring.SendCommands("minimap minimize 0")
+end
+
+local function mapProjectApi()
+	return WG and WG.MapProject
+end
+
+local function projectStillLoading()
+	local mp = mapProjectApi()
+	if not mp then
+		return (Spring.GetGameFrame() or 0) < 90
+	end
+	if mp.isLoading and mp.isLoading() then
+		widgetState.projectLoadSeen = true
+		return true
+	end
+	return false
+end
+
+local function hideTerraform()
+	if widgetState.playtesting or widgetState.tfUiHidden or not widgetHandler.RemoveWidgetRaw then
+		return
+	end
+	if projectStillLoading() then
+		return
+	end
+	local known = widgetHandler.knownWidgets
+	if not known then
+		return
+	end
+	for name, info in pairs(known) do
+		if info.active and type(name) == "string" and name:lower() == "terraform brush ui" then
+			local w = widgetHandler:FindWidget(name)
+			if w and w ~= widget then
+				widgetHandler:RemoveWidgetRaw(w)
+				widgetState.tfUiHidden = true
+				Spring.Echo("Map Editor: hid " .. name .. " after project load")
+			end
+		end
+	end
+end
+
 local function hideGameplayHud()
-	if widgetState.playtesting or widgetState.hudHidden or not widgetHandler.RemoveWidgetRaw then
+	if widgetState.playtesting or not widgetHandler.RemoveWidgetRaw then
+		return
+	end
+	hideTerraform()
+	hideEngineMinimap()
+	if widgetState.hudHidden then
 		return
 	end
 	local known = widgetHandler.knownWidgets
@@ -489,6 +887,7 @@ local function showGameplayHud()
 	widgetState.stashedHud = {}
 	widgetState.hudHidden = false
 	widgetState.hudPasses = 0
+	showEngineMinimap()
 end
 
 local function setPlaytestChrome(playing)
@@ -792,12 +1191,14 @@ local function refreshModel()
 	dm.strengthValue = tostring(math.floor(widgetState.strength + 0.5))
 	dm.falloffValue = tostring(math.floor(widgetState.falloff * 100 + 0.5)) .. "%"
 	dm.newSizeValue = newMapSizeLabel()
+	dm.radialValue = radialLabelValue()
 	dm.dirtyLabel = saveStatus()
 	dm.rotateLabel = t("rotateLabel", "Rotate") .. " " .. tostring(widgetState.facing * 90) .. "°"
 	dm.assetName = assetLabel()
 	if not widgetState.hoverTip then
 		applyToolTip(widgetState.tool)
 	end
+	syncMirrorButtons()
 	if widgetState.playtesting then
 		dm.hint = t("playtestHint", "F9 or Esc returns  ·  F7 save map")
 		dm.statusLine = t("playLabel", "Playtest") .. "  ·  " .. saveStatus()
@@ -905,6 +1306,104 @@ local function refreshModel()
 	)
 end
 
+local TF_MODE = {
+	raise = "raise",
+	lower = "lower",
+	flatten = "level",
+	smooth = "smooth",
+	ramp = "ramp",
+}
+local TF_CMD = {
+	raise = "terraformup",
+	lower = "terraformdown",
+	flatten = "terraformlevel",
+	smooth = "terraformsmooth",
+	ramp = "terraformramp",
+}
+
+local function liveTf()
+	return WG and WG.TerraformBrush
+end
+
+local function stopSideBrushes()
+	if WG and WG.MetalBrush and WG.MetalBrush.deactivate then
+		WG.MetalBrush.deactivate()
+	end
+	if WG and WG.GrassBrush and WG.GrassBrush.deactivate then
+		WG.GrassBrush.deactivate()
+	end
+end
+
+local function applyLiveTool(tool)
+	local mode = TF_MODE[tool]
+	if mode then
+		stopSideBrushes()
+		if Spring.IsCheatingEnabled and not Spring.IsCheatingEnabled() then
+			Spring.SendCommands("cheat")
+		end
+		local tb = liveTf()
+		if tb and tb.setMode then
+			tb.setMode(mode)
+			if tb.setRadius then
+				tb.setRadius(widgetState.radius)
+			end
+			if tb.setIntensity then
+				tb.setIntensity(widgetState.strength)
+			end
+			if tb.setCurve then
+				tb.setCurve(widgetState.falloff * 5)
+			end
+			widgetState.tfArmed = true
+			return true
+		end
+		local cmd = TF_CMD[tool]
+		if cmd then
+			Spring.SendCommands(cmd)
+			return true
+		end
+		return false
+	end
+	local tb = liveTf()
+	if tb and tb.deactivate then
+		tb.deactivate()
+	end
+	widgetState.tfArmed = false
+	if tool == "metal" or tool == "demetal" then
+		local mb = WG and WG.MetalBrush
+		if mb and mb.activate then
+			mb.activate(tool == "demetal" and "remove" or "paint")
+			return true
+		end
+		return false
+	end
+	if tool == "grass" or tool == "cut" then
+		local gb = WG and WG.GrassBrush
+		if gb and gb.activate then
+			gb.activate(tool == "cut" and "erase" or "paint")
+			return true
+		end
+		return false
+	end
+	return false
+end
+
+local function liveUndo(redo)
+	local tb = liveTf()
+	if redo then
+		if tb and tb.redo then
+			tb.redo()
+			return
+		end
+		send("redo")
+		return
+	end
+	if tb and tb.undo then
+		tb.undo()
+		return
+	end
+	send("undo")
+end
+
 local function setTool(tool)
 	widgetState.tool = tool
 	if tool ~= "ramp" then
@@ -933,6 +1432,9 @@ local function setTool(tool)
 	setLayerVisible(widgetState.layer)
 	setToolClass(tool)
 	refreshModel()
+	if applyLiveTool(tool) then
+		Spring.Echo("Map Editor: live tool " .. tool)
+	end
 end
 
 local function setLayer(layer)
@@ -966,6 +1468,7 @@ local function setLayer(layer)
 	setLayerVisible(layer)
 	setToolClass(widgetState.tool)
 	refreshModel()
+	applyLiveTool(widgetState.tool)
 end
 
 local function setTab(tab)
@@ -1114,15 +1617,19 @@ local function restoreSplat(from, into)
 end
 
 local function queueSplat(x, z, erase)
-	widgetState.texQueue[#widgetState.texQueue + 1] = {
-		x = x,
-		z = z,
-		erase = erase,
-		ch = SPLAT_CH[widgetState.tool] or 1,
-		radius = widgetState.radius,
-		strength = widgetState.strength,
-		falloff = widgetState.falloff,
-	}
+	local xforms = currentXforms()
+	for i = 1, #xforms do
+		local px, pz = xforms[i](x, z)
+		widgetState.texQueue[#widgetState.texQueue + 1] = {
+			x = px,
+			z = pz,
+			erase = erase,
+			ch = SPLAT_CH[widgetState.tool] or 1,
+			radius = widgetState.radius,
+			strength = widgetState.strength,
+			falloff = widgetState.falloff,
+		}
+	end
 end
 
 local function flushSplatQueue()
@@ -1334,6 +1841,10 @@ local function adjustRadius(delta)
 		return
 	end
 	widgetState.radius = clamp(widgetState.radius + delta, MIN_RADIUS, MAX_RADIUS)
+	local tb = liveTf()
+	if tb and tb.setRadius then
+		tb.setRadius(widgetState.radius)
+	end
 	refreshModel()
 end
 
@@ -1343,6 +1854,10 @@ local function adjustStrength(delta)
 		return
 	end
 	widgetState.strength = clamp(widgetState.strength + delta, MIN_STRENGTH, MAX_STRENGTH)
+	local tb = liveTf()
+	if tb and tb.setIntensity then
+		tb.setIntensity(widgetState.strength)
+	end
 	refreshModel()
 end
 
@@ -1352,6 +1867,10 @@ local function adjustFalloff(delta)
 		return
 	end
 	widgetState.falloff = clamp(widgetState.falloff + delta, 0, 1)
+	local tb = liveTf()
+	if tb and tb.setCurve then
+		tb.setCurve(widgetState.falloff * 5)
+	end
 	refreshModel()
 end
 
@@ -1371,14 +1890,17 @@ local function paint(kind, toolOverride)
 			widgetState.rampStart = { x, z }
 		end
 		send(string.format(
-			"begin,%s,%.1f,%.1f,%.1f,%.1f,%.2f,%s",
+			"begin,%s,%.1f,%.1f,%.1f,%.1f,%.2f,%s,%s,%s,%d",
 			tool,
 			x,
 			z,
 			widgetState.radius,
 			widgetState.strength,
 			widgetState.falloff,
-			shift and "1" or "0"
+			shift and "1" or "0",
+			widgetState.mirrorH and "1" or "0",
+			widgetState.mirrorV and "1" or "0",
+			widgetState.radial or 0
 		))
 		widgetState.painting = true
 		widgetState.lastPaint = os.clock()
@@ -1399,13 +1921,23 @@ end
 
 local function bindClicks()
 	local document = widgetState.document
+	clickHandlers = {}
 	local function on(id, fn)
+		clickHandlers[id] = fn
 		local el = document:GetElementById(id)
 		if el then
-			el:AddEventListener("click", function(event)
-				fn()
-				event:StopPropagation()
-			end, false)
+			local function fire(event)
+				local id = el.id
+				if (not id or id == "") and el.GetId then
+					id = el:GetId()
+				end
+				fireClick(id)
+				if event and event.StopPropagation then
+					event:StopPropagation()
+				end
+			end
+			el:AddEventListener("click", fire, false)
+			el:AddEventListener("mousedown", fire, false)
 		end
 	end
 	local function hover(id, titleKey, titleFb, bodyKey, bodyFb)
@@ -1428,6 +1960,10 @@ local function bindClicks()
 	on("tab-paint", function() setTab("paint") end)
 	on("tab-place", function() setTab("place") end)
 	on("tab-map", function() setTab("map") end)
+	on("mirror-h", function() toggleMirrorH() end)
+	on("mirror-v", function() toggleMirrorV() end)
+	on("radial-dec", function() adjustRadial(-1) end)
+	on("radial-inc", function() adjustRadial(1) end)
 	on("tool-raise", function() setTool("raise") end)
 	on("tool-lower", function() setTool("lower") end)
 	on("tool-flatten", function() setTool("flatten") end)
@@ -1464,9 +2000,9 @@ local function bindClicks()
 	on("strength-inc", function() adjustStrength(STRENGTH_STEP) end)
 	on("falloff-dec", function() adjustFalloff(-FALLOFF_STEP) end)
 	on("falloff-inc", function() adjustFalloff(FALLOFF_STEP) end)
-	on("me-undo", function() send("undo") end)
-	on("me-redo", function() send("redo") end)
-	on("me-save", function() send("save") end)
+	on("me-undo", function() liveUndo(false) end)
+	on("me-redo", function() liveUndo(true) end)
+	on("me-save", function() saveLiveProject() end)
 	on("me-load", function() send("load") end)
 	on("me-play", function() send("playtest") end)
 	on("me-new", function() createNewMap() end)
@@ -1479,6 +2015,10 @@ local function bindClicks()
 	hover("tab-paint", "tabPaint", "Paint", "tabPaintTip", "Surface paint. Metal, Grass, and Tex each keep one job.")
 	hover("tab-place", "tabPlace", "Place", "tabPlaceTip", "Features and units. Place drops the selected asset. Delete removes nearby assets.")
 	hover("tab-map", "tabMap", "Map", "tabMapTip", "Name, New Map, Save Map, Snapshot, Playtest, start boxes, and lighting.")
+	hover("mirror-h", "mirrorH", "Mirror H", "mirrorHTip", "Reflects every stroke across the map’s vertical centerline (left-right). Combines with Mirror V and Radial.")
+	hover("mirror-v", "mirrorV", "Mirror V", "mirrorVTip", "Reflects every stroke across the map’s horizontal centerline (top-bottom). Combines with Mirror H and Radial.")
+	hover("radial-dec", "radialLabel", "Radial", "radialTip", "N-fold rotation around map center. Off, then 3, 4, 5, 6, 8. Combines with H/V mirrors. M cycles.")
+	hover("radial-inc", "radialLabel", "Radial", "radialTip", "N-fold rotation around map center. Off, then 3, 4, 5, 6, 8. Combines with H/V mirrors. M cycles.")
 	hover("tool-raise", "raise", "Raise", "raiseTip", TOOL_TIP_FALLBACK.raise)
 	hover("tool-lower", "lower", "Lower", "lowerTip", TOOL_TIP_FALLBACK.lower)
 	hover("tool-flatten", "flatten", "Flatten", "flattenTip", TOOL_TIP_FALLBACK.flatten)
@@ -1543,7 +2083,12 @@ local function bindClicks()
 end
 
 function widget:Initialize()
-	initialModel.title = t("title", "Map Editor")
+	if not editorRequested() then
+		Spring.Echo("Map Editor: not a map-editor session — idle")
+		return
+	end
+	widgetState.active = true
+	initialModel.title = "MAP EDITOR"
 	initialModel.sectionLabel = t("terrain", "Terrain")
 	initialModel.tabSculpt = t("tabSculpt", "Sculpt")
 	initialModel.tabPaint = t("tabPaint", "Paint")
@@ -1597,59 +2142,97 @@ function widget:Initialize()
 	initialModel.newSizeLabel = t("newSizeLabel", "Size")
 	initialModel.nameLabel = t("nameLabel", "Name")
 	initialModel.namePlaceholder = t("namePlaceholder", "Map name")
+	initialModel.mirrorLabel = t("mirrorLabel", "Symmetry")
+	initialModel.mirrorH = t("mirrorH", "Mirror H")
+	initialModel.mirrorV = t("mirrorV", "Mirror V")
+	initialModel.radialLabel = t("radialLabel", "Radial")
+	initialModel.radialValue = t("radialOff", "Off")
 	initialModel.newSizeValue = newMapSizeLabel()
 	initialModel.hint = t("hint", initialModel.hint)
 	initialModel.mapName = Game.mapName or ""
 
-	widgetState.rmlContext = RmlUi.GetContext("shared")
+	if WG then
+		WG.mapEditorLive = true
+	end
+	Spring.Echo("Map Editor: Initialize on " .. tostring(Game.mapName or "?"))
+	if not RmlUi then
+		Spring.Echo("Map Editor: RmlUi is nil — fallback left rail only")
+		hideGameplayHud()
+		return
+	end
+
+	widgetState.rmlContext = RmlUi.GetContext("shared") or RmlUi.GetContext("default")
 	if not widgetState.rmlContext then
-		return false
+		Spring.Echo("Map Editor: no Rml context — fallback left rail only")
+		hideGameplayHud()
+		return
 	end
 
 	local dm = widgetState.rmlContext:OpenDataModel(MODEL_NAME, initialModel, self)
 	if not dm then
-		return false
+		Spring.Echo("Map Editor: OpenDataModel failed — fallback left rail only")
+		hideGameplayHud()
+		return
 	end
 	widgetState.dmHandle = dm
 
 	local document = widgetState.rmlContext:LoadDocument(RML_PATH, self)
 	if not document then
-		widget:Shutdown()
-		return false
+		document = widgetState.rmlContext:LoadDocument(RML_PATH)
+	end
+	if not document then
+		Spring.Echo("Map Editor: LoadDocument failed (" .. RML_PATH .. ") — fallback left rail only")
+		hideGameplayHud()
+		return
 	end
 	widgetState.document = document
 	document:Show()
-	buildPalettes()
-	bindClicks()
-	setToolClass(widgetState.tool)
-	setLayerVisible(widgetState.layer)
-	local current = Game.mapName or ""
-	if current:find("^Untitled") or current:find("%(edited%)$") then
-		widgetState.mapTitle = current
-	end
-	local nameEl = document:GetElementById("me-name")
-	if nameEl then
-		pcall(function()
-			nameEl.value = widgetState.mapTitle
-		end)
-		if nameEl.SetAttribute then
-			nameEl:SetAttribute("value", widgetState.mapTitle)
-			nameEl:SetAttribute("placeholder", t("namePlaceholder", "Map name"))
-		end
-	end
-	captureLight()
-	if widgetState.lightReady then
-		sendLight()
-	end
-	refreshModel()
 	hideGameplayHud()
+	Spring.Echo("Map Editor: Rml chrome shown")
+	local ok, err = pcall(function()
+		buildPalettes()
+		bindClicks()
+		setToolClass(widgetState.tool)
+		setLayerVisible(widgetState.layer)
+		syncMirrorButtons()
+		local current = Game.mapName or ""
+		if current:find("^Untitled") or current:find("%(edited%)$") then
+			widgetState.mapTitle = current
+		end
+		local nameEl = document:GetElementById("me-name")
+		if nameEl then
+			pcall(function()
+				nameEl.value = widgetState.mapTitle
+			end)
+			if nameEl.SetAttribute then
+				nameEl:SetAttribute("value", widgetState.mapTitle)
+				nameEl:SetAttribute("placeholder", t("namePlaceholder", "Map name"))
+			end
+		end
+		captureLight()
+		refreshModel()
+	end)
+	if not ok then
+		Spring.Echo("Map Editor: init follow-up failed: " .. tostring(err))
+	end
 end
 
 function widget:GameStart()
+	if not widgetState.active then
+		return
+	end
 	hideGameplayHud()
+	if widgetState.document then
+		widgetState.document:Show()
+	end
+	Spring.Echo("Map Editor: GameStart chrome=" .. tostring(widgetState.document ~= nil))
 end
 
 function widget:Shutdown()
+	if WG then
+		WG.mapEditorLive = nil
+	end
+	showEngineMinimap()
 	clearUnitGhost()
 	if widgetState.paintTex then
 		gl.DeleteTexture(widgetState.paintTex)
@@ -1674,6 +2257,13 @@ function widget:Shutdown()
 end
 
 function widget:Update()
+	if not widgetState.active then
+		return
+	end
+	if widgetState.document and not widgetState.playtesting then
+		widgetState.document:Show()
+		hideEngineMinimap()
+	end
 	if not widgetState.reloading and (spGetGameRulesParam("mapEditorNeedReload") or 0) > 0 then
 		widgetState.reloading = true
 		local script
@@ -1692,6 +2282,30 @@ function widget:Update()
 		widgetState.reloading = false
 	end
 	hideGameplayHud()
+	local mp = WG and WG.MapProject
+	if mp and mp.current and not widgetState.naming then
+		local cur = mp.current()
+		if type(cur) == "string" and cur ~= "" then
+			if widgetState.mapTitle == "" or widgetState.mapTitle:find("^Editor Flat") then
+				widgetState.mapTitle = cur
+				local nameEl = widgetState.document and widgetState.document:GetElementById("me-name")
+				if nameEl then
+					pcall(function()
+						nameEl.value = cur
+					end)
+					if nameEl.SetAttribute then
+						nameEl:SetAttribute("value", cur)
+					end
+				end
+			end
+		end
+	end
+	if widgetState.layer == "height" and not widgetState.tfArmed then
+		local tb = liveTf()
+		if tb and tb.setMode and applyLiveTool(widgetState.tool) then
+			Spring.Echo("Map Editor: terraform armed " .. tostring(widgetState.tool))
+		end
+	end
 	local x, z = groundPos()
 	if x then
 		widgetState.cursorX = x
@@ -1744,9 +2358,18 @@ function widget:Update()
 	refreshModel()
 end
 
-function widget:MousePress(_, _, button)
-	if mouseOnChrome() then
+function widget:MousePress(mx, my, button)
+	if not widgetState.active then
 		return false
+	end
+	if mouseOnChrome() then
+		if button == 1 then
+			local id = clickedId(mx, my)
+			if id then
+				fireClick(id)
+			end
+		end
+		return true
 	end
 	if widgetState.playtesting then
 		return false
@@ -1821,6 +2444,9 @@ function widget:MousePress(_, _, button)
 		end
 		return false
 	end
+	if widgetState.layer == "height" or widgetState.layer == "metal" or widgetState.layer == "grass" then
+		return false
+	end
 	if button == 1 then
 		paint("begin")
 		return true
@@ -1833,6 +2459,9 @@ function widget:MousePress(_, _, button)
 end
 
 function widget:MouseRelease(_, _, button)
+	if not widgetState.active then
+		return false
+	end
 	if widgetState.texStroke and (button == 1 or button == 3) then
 		widgetState.texStroke = false
 		return true
@@ -1858,6 +2487,9 @@ function widget:MouseRelease(_, _, button)
 end
 
 function widget:KeyPress(key, mods)
+	if not widgetState.active then
+		return false
+	end
 	mods = mods or {}
 	if widgetState.naming then
 		if key == KEYSYMS.F5 or key == KEYSYMS.F6 or key == KEYSYMS.F7 or key == KEYSYMS.F8 or key == KEYSYMS.ESCAPE then
@@ -1881,7 +2513,7 @@ function widget:KeyPress(key, mods)
 			return true
 		end
 		if key == KEYSYMS.F5 then
-			send("save")
+			saveLiveProject()
 			return true
 		end
 		if key == KEYSYMS.F6 then
@@ -1898,11 +2530,11 @@ function widget:KeyPress(key, mods)
 		return false
 	end
 	if mods.ctrl and key == KEYSYMS.Z then
-		send("undo")
+		liveUndo(false)
 		return true
 	end
 	if mods.ctrl and key == KEYSYMS.Y then
-		send("redo")
+		liveUndo(true)
 		return true
 	end
 	if key == KEYSYMS.LEFTBRACKET then
@@ -1918,6 +2550,29 @@ function widget:KeyPress(key, mods)
 			cycleAsset(1)
 		else
 			adjustRadius(RADIUS_STEP)
+		end
+		return true
+	end
+	if key == KEYSYMS.H then
+		toggleMirrorH()
+		return true
+	end
+	if key == KEYSYMS.V then
+		toggleMirrorV()
+		return true
+	end
+	if key == KEYSYMS.M then
+		if widgetState.radial >= 8 then
+			widgetState.radial = 0
+		elseif widgetState.radial < 3 then
+			widgetState.radial = 3
+		else
+			adjustRadial(1)
+			return true
+		end
+		sendMirror()
+		if widgetState.dmHandle then
+			widgetState.dmHandle.radialValue = radialLabelValue()
 		end
 		return true
 	end
@@ -1983,7 +2638,7 @@ function widget:KeyPress(key, mods)
 		return true
 	end
 	if key == KEYSYMS.F5 then
-		send("save")
+		saveLiveProject()
 		return true
 	end
 	if key == KEYSYMS.F6 then
@@ -2001,6 +2656,9 @@ function widget:KeyPress(key, mods)
 end
 
 function widget:TextInput()
+	if not widgetState.active then
+		return false
+	end
 	if widgetState.naming then
 		return false
 	end
@@ -2024,7 +2682,22 @@ local function drawGroundRect(xmin, zmin, xmax, zmax)
 	end)
 end
 
+local function drawBrushCopies(x, z, radius, inner)
+	local xforms = currentXforms()
+	for i = 1, #xforms do
+		local px, pz = xforms[i](x, z)
+		local py = spGetGroundHeight(px, pz)
+		glDrawGroundCircle(px, py, pz, radius, 48)
+		if inner then
+			glDrawGroundCircle(px, py, pz, inner, 32)
+		end
+	end
+end
+
 function widget:DrawWorld()
+	if not widgetState.active then
+		return
+	end
 	flushSplatQueue()
 	if widgetState.layer == "tex" then
 		clearUnitGhost()
@@ -2036,7 +2709,7 @@ function widget:DrawWorld()
 			glDepthTest(false)
 			glLineWidth(2.5)
 			glColor(color[1], color[2], color[3], 0.95)
-			glDrawGroundCircle(x, y, z, widgetState.radius, 48)
+			drawBrushCopies(x, z, widgetState.radius)
 			glLineWidth(1)
 			glColor(1, 1, 1, 1)
 			glDepthTest(true)
@@ -2115,7 +2788,7 @@ function widget:DrawWorld()
 		glLineWidth(2.5)
 		glColor(color[1], color[2], color[3], 0.95)
 		local marker = widgetState.tool == "delete" and widgetState.radius or 28
-		glDrawGroundCircle(x, y, z, marker, 48)
+		drawBrushCopies(x, z, marker)
 		if widgetState.tool == "place" then
 			local asset = currentAsset()
 			if asset then
@@ -2155,25 +2828,28 @@ function widget:DrawWorld()
 	glDepthTest(false)
 	glLineWidth(2.5)
 	glColor(color[1], color[2], color[3], 0.95)
-	glDrawGroundCircle(x, y, z, widgetState.radius, 64)
-	glColor(color[1], color[2], color[3], 0.4)
-	glDrawGroundCircle(x, y, z, widgetState.radius * math.max(0.08, 1 - widgetState.falloff), 48)
+	drawBrushCopies(x, z, widgetState.radius, widgetState.radius * math.max(0.08, 1 - widgetState.falloff))
 	if widgetState.tool == "ramp" and widgetState.rampStart then
 		local sx = widgetState.rampStart[1]
 		local sz = widgetState.rampStart[2]
-		local sy = spGetGroundHeight(sx, sz)
-		glColor(color[1], color[2], color[3], 0.95)
-		glDrawGroundCircle(sx, sy, sz, widgetState.radius, 48)
+		local xforms = currentXforms()
 		glLineWidth(3)
-		gl.BeginEnd(GL.LINE_STRIP, function()
-			local steps = 24
-			for i = 0, steps do
-				local u = i / steps
-				local px = sx + (x - sx) * u
-				local pz = sz + (z - sz) * u
-				gl.Vertex(px, spGetGroundHeight(px, pz) + 8, pz)
-			end
-		end)
+		for i = 1, #xforms do
+			local ax, az = xforms[i](sx, sz)
+			local bx, bz = xforms[i](x, z)
+			local ay = spGetGroundHeight(ax, az)
+			glColor(color[1], color[2], color[3], 0.95)
+			glDrawGroundCircle(ax, ay, az, widgetState.radius, 48)
+			gl.BeginEnd(GL.LINE_STRIP, function()
+				local steps = 24
+				for s = 0, steps do
+					local u = s / steps
+					local px = ax + (bx - ax) * u
+					local pz = az + (bz - az) * u
+					gl.Vertex(px, spGetGroundHeight(px, pz) + 8, pz)
+				end
+			end)
+		end
 	end
 	if widgetState.layer == "metal" then
 		local r = widgetState.radius
@@ -2213,6 +2889,27 @@ function widget:DrawWorld()
 	glDepthTest(true)
 end
 
+function widget:DrawScreen()
+	if not widgetState.active or widgetState.playtesting then
+		return
+	end
+	local vsx, vsy = Spring.GetViewGeometry()
+	if not vsx then
+		return
+	end
+	if not widgetState.document then
+		local w = vsx * 0.18
+		gl.Color(0.07, 0.08, 0.07, 0.96)
+		gl.Rect(0, 0, w, vsy)
+		gl.Color(0.55, 0.9, 0.4, 1)
+		gl.Text("MAP EDITOR", 14, vsy - 46, 22, "o")
+		gl.Text("Sculpt  Paint  Place  Map", 14, vsy - 78, 16, "o")
+		gl.Text("Mirror H / V / Radial", 14, vsy - 108, 16, "o")
+		gl.Text("Rml chrome missing — check infolog", 14, vsy - 138, 14, "o")
+		gl.Color(1, 1, 1, 1)
+	end
+end
+
 function widget:RecvLuaMsg(message)
 	local document = widgetState.document
 	if not document then
@@ -2221,6 +2918,10 @@ function widget:RecvLuaMsg(message)
 	if message:sub(1, 19) == "LobbyOverlayActive0" then
 		document:Show()
 	elseif message:sub(1, 19) == "LobbyOverlayActive1" then
-		document:Hide()
+		if widgetState.playtesting then
+			document:Hide()
+		else
+			document:Show()
+		end
 	end
 end

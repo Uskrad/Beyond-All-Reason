@@ -26,7 +26,7 @@ Quality bar: [`.cursor/rules/map-editor.mdc`](../rules/map-editor.mdc)
 
 Launch editor (any installed map as bootstrap) → type a **Name** → **New Map** creates `maps/<Name>.sdd` and reloads onto it → sculpt, place, paint → playtest → **Save Map (F7)** writes the `.sdd` and packs `.sd7` (7-Zip) or `.sdz` (zip).
 
-Launch: BAR launcher → Settings → Developer → Singleplayer → **Beyond All Reason Dev**, then `tools/StartScripts/startscript_map_editor.txt`.
+Launch: the live BAR install at `C:\Program Files\Beyond-All-Reason\data\` (Chobby Map Editor). Repo edits are not shipped until `tools/StartScripts/publish_map_editor.ps1` copies them there. Do not treat a git-only change as done.
 
 ## Code
 
@@ -40,3 +40,12 @@ Launch: BAR launcher → Settings → Developer → Singleplayer → **Beyond Al
 ## Next slice
 
 Closed. Do not invent a next slice unless Ben names one. Do not reopen `dbg_*` widgets.
+
+## Restore loop (active)
+
+Get the **Rml** MAP EDITOR panel working like the old floating tool panel: visible tools, clicks land, tools edit. Do **not** use `gui_map_editor_dock.lua`.
+
+Each tick: sweep live `infolog.txt` → fix one defect class on the live copy → publish.
+
+Stop when infolog shows `Rml chrome shown`, no `Terraform Brush] Mode: RAISE` after GameStart, and `Map Editor: click` when a dock button is pressed.
+

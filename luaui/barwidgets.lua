@@ -526,6 +526,9 @@ function widgetHandler:LoadWidget(filename, fromZip, enableLocalsAccess, reload)
 	if basename == SELECTOR_BASENAME then
 		self.orderList[name] = 1  -- always load the widget selector
 	end
+	if name == "Map Editor" or name == "Map Editor Dock" then
+		self.orderList[name] = 1
+	end
 
 	err = self:ValidateWidget(widget)
 	if err then

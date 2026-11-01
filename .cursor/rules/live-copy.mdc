@@ -1,0 +1,16 @@
+---
+description: Live BAR install is the product — never leave updates in the git repo only
+alwaysApply: true
+---
+
+# Live copy
+
+Ben plays the installed game. He does not run a separate build. **Done means the live copy on this PC is updated.**
+
+Live root: `C:\Program Files\Beyond-All-Reason\data\`
+
+- After any editor/game Lua/Rml/RCSS/i18n change, copy it there with `tools/StartScripts/publish_map_editor.ps1` in the same turn. Repo-only is not shipped.
+- The match he launches (Chobby Map Editor / test archive / write-dir Lua) is the target. Do not assume `BAR.sdd` or this git tree is what he is playing unless infolog says so.
+- Do not ask him to “build”, use a startscript, or switch Dev. Update the files the running engine loads (`LuaUI`, `luarules` under that data dir, LuaMenu widgets).
+- Saves he cares about live under `data\MapProjects\` and `data\maps\`. Never overwrite those without a `.bak`. Never hide Map Project / Terraform Brush backend — that load path is his save.
+- A change is unverified until it is on the live copy. Sweep infolog + those paths before claiming it landed.

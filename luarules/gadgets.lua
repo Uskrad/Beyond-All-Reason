@@ -55,10 +55,14 @@ if IsSyncedCode() then
 	Spring.SetGameRulesParam('isDevMode', devModeEnabled)
 
 	local mapEditorEnabled = 0
+	if devModeEnabled then
+		mapEditorEnabled = 1
+	end
 	local ok, opts = pcall(Spring.GetModOptions)
 	if ok and opts then
 		local v = opts.map_editor
-		if v == true or v == 1 or v == "1" then
+		local v2 = opts.mapeditor
+		if v == true or v == 1 or v == "1" or v2 == true or v2 == 1 or v2 == "1" then
 			mapEditorEnabled = 1
 		end
 	end

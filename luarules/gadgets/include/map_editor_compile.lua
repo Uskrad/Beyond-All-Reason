@@ -113,15 +113,74 @@ local function parentDir(path)
 	return path:match("^(.*)/[^/]+$")
 end
 
-local function ensureDirs(path)
-	if not Spring.CreateDir then
+local function winPath(path)
+	return (tostring(path or ""):gsub("/", "\\"))
+end
+
+local mapsDirCache
+
+local function mapsDir()
+	if mapsDirCache then
+		return mapsDirCache
+	end
+	if Spring.CreateDir then
+		Spring.CreateDir("maps")
+	end
+	pcall(os.execute, 'cmd /c mkdir "maps"')
+	local probe = "maps/_me_write_probe.txt"
+	local f = io.open(probe, "w")
+	if f then
+		f:write("ok")
+		f:close()
+	end
+	local abs
+	if VFS and VFS.GetFileAbsolutePath then
+		abs = VFS.GetFileAbsolutePath(probe, VFS.RAW) or VFS.GetFileAbsolutePath(probe)
+	end
+	pcall(os.remove, probe)
+	if abs and abs ~= "" then
+		abs = abs:gsub("\\", "/")
+		mapsDirCache = abs:match("^(.*)/[^/]+$") or "maps"
+	else
+		mapsDirCache = "maps"
+	end
+	Spring.Echo("Map Editor maps dir: " .. mapsDirCache)
+	return mapsDirCache
+end
+
+local function absMapsPath(path)
+	path = tostring(path or ""):gsub("\\", "/")
+	if path:sub(1, 5) == "maps/" then
+		local root = mapsDir()
+		if root ~= "maps" then
+			return root .. "/" .. path:sub(6)
+		end
+	end
+	return path
+end
+
+local function mkdirP(path)
+	if not path or path == "" then
 		return
 	end
-	local acc = ""
-	for part in path:gmatch("[^/]+") do
-		acc = acc == "" and part or (acc .. "/" .. part)
-		Spring.CreateDir(acc)
+	path = path:gsub("\\", "/")
+	if Spring.CreateDir then
+		local acc = ""
+		for part in path:gmatch("[^/]+") do
+			acc = acc == "" and part or (acc .. "/" .. part)
+			Spring.CreateDir(acc)
+		end
 	end
+	-- Spring.CreateDir can refuse names ending in .sdd (treated as an archive).
+	pcall(os.execute, 'cmd /c mkdir "' .. winPath(path) .. '"')
+	local abs = absMapsPath(path)
+	if abs ~= path then
+		pcall(os.execute, 'cmd /c mkdir "' .. winPath(abs) .. '"')
+	end
+end
+
+local function ensureDirs(path)
+	mkdirP(path)
 end
 
 local function writeBytes(path, data)
@@ -130,6 +189,15 @@ local function writeBytes(path, data)
 		ensureDirs(dir)
 	end
 	local f = io.open(path, "wb")
+	if not f then
+		local abs = absMapsPath(path)
+		local absDir = parentDir(abs)
+		if absDir then
+			mkdirP(absDir)
+		end
+		f = io.open(abs, "wb")
+		path = abs
+	end
 	if not f then
 		return false
 	end
@@ -144,6 +212,15 @@ local function writeText(path, text)
 		ensureDirs(dir)
 	end
 	local f = io.open(path, "w")
+	if not f then
+		local abs = absMapsPath(path)
+		local absDir = parentDir(abs)
+		if absDir then
+			mkdirP(absDir)
+		end
+		f = io.open(abs, "w")
+		path = abs
+	end
 	if not f then
 		return false
 	end
@@ -642,6 +719,7 @@ local function applyLighting(info, minH, maxH, mapName)
 	info = info or {}
 	info.name = mapName
 	info.shortname = mapName
+	info.modtype = 3
 	info.description = info.description or Game.mapDescription or ""
 	if not tostring(info.description):find("BAR map editor", 1, true) then
 		info.description = info.description .. " — saved from BAR map editor"
@@ -952,7 +1030,9 @@ end
 
 local function packWith7z(folder, mapName)
 	local safe = mapName:gsub("[^%w%._%-]", "_")
-	local sd7 = "maps/" .. safe .. ".sd7"
+	local sd7Rel = "maps/" .. safe .. ".sd7"
+	local sd7Abs = absMapsPath(sd7Rel)
+	local folderAbs = absMapsPath(folder)
 	local exe
 	local candidates = {
 		"C:/Program Files/7-Zip/7z.exe",
@@ -969,15 +1049,20 @@ local function packWith7z(folder, mapName)
 	if not exe then
 		return nil
 	end
-	local winFolder = folder:gsub("/", "\\")
-	local cmd = string.format('cd /d "%s" & "%s" a -t7z -mx=5 -y "..\\%s" *', winFolder, exe, safe .. ".sd7")
+	mkdirP(mapsDir())
+	local cmd = string.format(
+		'cmd /c "cd /d "%s" && "%s" a -t7z -mx=5 -y "%s" *"',
+		winPath(folderAbs),
+		winPath(exe),
+		winPath(sd7Abs)
+	)
 	pcall(os.execute, cmd)
-	local probe = io.open(sd7, "rb")
+	local probe = io.open(sd7Abs, "rb") or io.open(sd7Rel, "rb")
 	if probe then
 		local magic = probe:read(2)
 		probe:close()
 		if magic == "7z" then
-			return sd7
+			return sd7Abs
 		end
 	end
 	return nil
@@ -991,14 +1076,19 @@ local function packMapArchive(folder, mapName)
 	if packed then
 		return packed
 	end
-	local zipPath = "maps/" .. mapName:gsub("[^%w%._%-]", "_") .. ".sdz"
+	local zipRel = "maps/" .. mapName:gsub("[^%w%._%-]", "_") .. ".sdz"
+	local zipPath = absMapsPath(zipRel)
+	mkdirP(mapsDir())
 	if VFS and VFS.CompressFolder then
-		local ok = pcall(VFS.CompressFolder, folder, "zip", zipPath, false)
+		local ok = pcall(VFS.CompressFolder, folder, "zip", zipRel, false)
 		if not ok then
-			ok = pcall(VFS.CompressFolder, folder, "zip", zipPath, false, VFS.RAW)
+			ok = pcall(VFS.CompressFolder, folder, "zip", zipRel, false, VFS.RAW)
+		end
+		if not ok then
+			ok = pcall(VFS.CompressFolder, absMapsPath(folder), "zip", zipPath, false)
 		end
 		if ok then
-			local probe = io.open(zipPath, "rb")
+			local probe = io.open(zipPath, "rb") or io.open(zipRel, "rb")
 			if probe then
 				probe:close()
 				return zipPath
@@ -1006,6 +1096,10 @@ local function packMapArchive(folder, mapName)
 		end
 	end
 	local rels = collectFolderFiles(folder)
+	if #rels == 0 then
+		rels = collectFolderFiles(absMapsPath(folder))
+		folder = absMapsPath(folder)
+	end
 	if #rels == 0 then
 		Spring.Echo("Map Editor pack failed: no files in " .. folder)
 		return nil
@@ -1016,6 +1110,31 @@ local function packMapArchive(folder, mapName)
 	end
 	Spring.Echo("Map Editor pack failed")
 	return nil
+end
+
+local function backupPacked(mapName)
+	local safe = mapName:gsub("[^%w%._%-]", "_")
+	local names = {
+		"maps/" .. safe .. ".sd7",
+		"maps/" .. safe .. ".sdz",
+	}
+	for i = 1, #names do
+		local abs = absMapsPath(names[i])
+		local inf = io.open(abs, "rb") or io.open(names[i], "rb")
+		if inf then
+			local data = inf:read("*a") or ""
+			inf:close()
+			if #data > 0 then
+				local bak = abs .. ".bak"
+				local out = io.open(bak, "wb")
+				if out then
+					out:write(data)
+					out:close()
+					Spring.Echo("Map Editor backup " .. bak)
+				end
+			end
+		end
+	end
 end
 
 local function writeEditedMap(wantedName)
@@ -1042,6 +1161,7 @@ local function writeEditedMap(wantedName)
 	else
 		mapName, folder = destForCurrentMap()
 	end
+	backupPacked(mapName)
 	ensureDirs(folder)
 	for i = 1, #files do
 		local rel = files[i]
@@ -1062,11 +1182,18 @@ local function writeEditedMap(wantedName)
 	writeUnits(folder)
 	writeText(
 		folder .. "/README_EDITOR.txt",
-		"Load this map from BAR (it appears as \"" .. mapName .. "\").\nOr set mapname in tools/StartScripts/startscript_map_editor.txt to:\n"
-			.. mapName
-			.. "\nPacked archive: maps/<name>.sd7 if 7-Zip is installed, otherwise maps/<name>.sdz (zip).\n"
+		"Load this map from BAR skirmish (it appears as \"" .. mapName .. "\").\n"
+			.. "Save Map writes a playable archive into the BAR data maps folder (same place skirmish scans):\n"
+			.. absMapsPath("maps")
+			.. "\nRestart the lobby after saving so the list refreshes.\n"
 	)
 	local packed = packMapArchive(folder, mapName)
+	Spring.Echo("Map Editor wrote working copy " .. absMapsPath(folder))
+	if packed then
+		Spring.Echo("Map Editor skirmish archive " .. packed)
+	else
+		Spring.Echo("Map Editor pack missed — skirmish needs maps/*.sd7 or maps/*.sdz")
+	end
 	return folder, mapName, packed
 end
 
@@ -1275,7 +1402,12 @@ local function writeBlankMap(smu, wantedName)
 			world
 		)
 	)
-	return folder, mapName, editorScript(mapName)
+	local packed = packMapArchive(folder, mapName)
+	Spring.Echo("Map Editor wrote working copy " .. absMapsPath(folder))
+	if packed then
+		Spring.Echo("Map Editor skirmish archive " .. packed)
+	end
+	return folder, mapName, editorScript(mapName), packed
 end
 
 return {

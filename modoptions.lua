@@ -2488,10 +2488,10 @@ Example: Armada VS Cortex VS Legion: 273 or 100 010 001 or 256 + 16 + 1]],
 		key		= "map_editor",
 		name	= "Map Editor",
 		desc	= "Launch the in-game map editor. New Map, sculpt, place, playtest, Save Map writes maps/*.sdd.",
-		section = "options_cheats",
+		section = "options_main",
 		type	= "bool",
-		def		= false,
-		hidden	= true,
+		def		= true,
+		hidden	= false,
 	},
 
 }
